@@ -115,6 +115,8 @@ def base_opts() -> dict:
         "no_warnings": True,
         "socket_timeout": 30,
         "retries": 3,
+        # نستخدم واجهة "التلفزيون" ليوتيوب، أقل عرضة لطلب تحقق إضافي على السيرفرات
+        "extractor_args": {"youtube": {"player_client": ["tv", "web_safari", "android"]}},
     }
     if COOKIES_FILE_ACTIVE and os.path.exists(COOKIES_FILE_ACTIVE):
         opts["cookiefile"] = COOKIES_FILE_ACTIVE
