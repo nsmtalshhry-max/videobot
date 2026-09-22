@@ -36,6 +36,9 @@ DB_PATH = os.getenv("DB_PATH", "bot.db")
 PORT = int(os.getenv("PORT", "8080"))              # مطلوب من Render/Koyeb عشان يعتبر الخدمة شغّالة
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "")  # بدون @ ، مثال: mjeed_downloads
 
+URL_RE = re.compile(r"https?://[^\s]+")
+
+
 def prepare_cookies_file() -> str:
     """ينسخ ملف الكوكيز (لو موجود) لمكان قابل للكتابة، لأن yt-dlp يحاول يحدّثه
     و/etc/secrets/ في Render للقراءة فقط."""
