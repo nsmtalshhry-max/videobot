@@ -36,7 +36,23 @@ DB_PATH = os.getenv("DB_PATH", "bot.db")
 PORT = int(os.getenv("PORT", "8080"))              # مطلوب من Render/Koyeb عشان يعتبر الخدمة شغّالة
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "")  # بدون @ ، مثال: mjeed_downloads
 
-URL_RE = re.compile(r"https?://[^\s]+")
+def prepare_cookies_file() -> str:
+    """ينسخ ملف الكوكيز (لو موجود) لمكان قابل للكتابة، لأن yt-dlp يحاول يحدّثه
+    و/etc/secrets/ في Render للقراءة فقط."""
+    src = COOKIES_FILE
+    if not src or not os.path.exists(src):
+        return ""
+    dest = "/tmp/cookies_local.txt" if os.path.isdir("/tmp") else "cookies_local.txt"
+    try:
+        shutil.copy(src, dest)
+        log.info(f"cookies copied to writable path: {dest}")
+        return dest
+    except Exception:
+        log.exception("failed to copy cookies file")
+        return src
+
+
+COOKIES_FILE_ACTIVE = prepare_cookies_file()
 SUPPORTED = (
     "youtube.com", "youtu.be", "tiktok.com", "instagram.com",
     "twitter.com", "x.com", "facebook.com", "fb.watch", "snapchat.com",
@@ -97,8 +113,8 @@ def base_opts() -> dict:
         "socket_timeout": 30,
         "retries": 3,
     }
-    if os.path.exists(COOKIES_FILE):
-        opts["cookiefile"] = COOKIES_FILE
+    if COOKIES_FILE_ACTIVE and os.path.exists(COOKIES_FILE_ACTIVE):
+        opts["cookiefile"] = COOKIES_FILE_ACTIVE
     return opts
 
 
