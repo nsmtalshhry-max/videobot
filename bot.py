@@ -34,6 +34,7 @@ MAX_MINUTES = int(os.getenv("MAX_MINUTES", "20"))  # أطول فيديو مسم�
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0") or 0)    # اختياري: لأمر /stats
 DB_PATH = os.getenv("DB_PATH", "bot.db")
 PORT = int(os.getenv("PORT", "8080"))              # مطلوب من Render/Koyeb عشان يعتبر الخدمة شغّالة
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME", "")  # بدون @ ، مثال: mjeed_downloads
 
 URL_RE = re.compile(r"https?://[^\s]+")
 SUPPORTED = (
@@ -151,6 +152,26 @@ def quality_keyboard(token: str) -> InlineKeyboardMarkup:
     )
 
 
+def join_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📢 انضم للقناة", url=f"https://t.me/{CHANNEL_USERNAME}")],
+            [InlineKeyboardButton(text="✅ تحققت، تابع", callback_data="check_sub")],
+        ]
+    )
+
+
+async def is_subscribed(bot: Bot, user_id: int) -> bool:
+    if not CHANNEL_USERNAME:
+        return True  # لو ما حطينا قناة، ما نفرض اشتراك
+    try:
+        member = await bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
+        return member.status not in ("left", "kicked")
+    except Exception:
+        log.warning("subscription check failed")
+        return True  # لو صار خطأ تقني، ما نمنع المستخدم
+
+
 def friendly_error(e: Exception) -> str:
     msg = str(e).lower()
     if "sign in" in msg or "login" in msg or "cookies" in msg:
@@ -195,9 +216,26 @@ async def stats(m: Message):
     )
 
 
+@dp.callback_query(F.data == "check_sub")
+async def on_check_sub(cb: CallbackQuery):
+    if await is_subscribed(cb.bot, cb.from_user.id):
+        await cb.answer("تم التحقق ✅", show_alert=True)
+        await cb.message.edit_text("تمام 👍 دحين أرسل رابط الفيديو اللي تبغاه.")
+    else:
+        await cb.answer("لسا ما انضممت للقناة 🙏", show_alert=True)
+
+
 @dp.message(F.text.regexp(URL_RE))
 async def on_link(m: Message):
     track_user(m.from_user.id)
+
+    if not await is_subscribed(m.bot, m.from_user.id):
+        await m.answer(
+            "🔒 قبل ما نحمّل لك، انضم لقناتنا أول (مرة وحدة بس):",
+            reply_markup=join_keyboard(),
+        )
+        return
+
     url = URL_RE.search(m.text).group(0)
     if not is_supported(url):
         await m.answer("هذا الرابط غير مدعوم حالياً 🙏")
@@ -236,6 +274,15 @@ async def on_choice(cb: CallbackQuery):
     if not data:
         await cb.answer("انتهت صلاحية الطلب، أرسل الرابط مرة ثانية", show_alert=True)
         return
+
+    if not await is_subscribed(cb.bot, cb.from_user.id):
+        await cb.answer()
+        await cb.message.edit_text(
+            "🔒 قبل ما نحمّل لك، انضم لقناتنا أول (مرة وحدة بس):",
+            reply_markup=join_keyboard(),
+        )
+        return
+
     await cb.answer()
 
     user_id = cb.from_user.id
