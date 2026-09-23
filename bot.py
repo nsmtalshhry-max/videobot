@@ -78,9 +78,27 @@ db.execute(
 )
 db.commit()
 
+db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+db.commit()
+
 pending: dict[str, dict] = {}  # token -> {url, key, title}
 sem = asyncio.Semaphore(MAX_PARALLEL)
 dp = Dispatcher()
+
+
+def get_setting(key: str, default: str = "") -> str:
+    row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(key: str, value: str):
+    db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)", (key, value))
+    db.commit()
+
+
+def current_channel() -> str:
+    # القيمة المحفوظة في قاعدة البيانات لها الأولوية، وإلا نرجع لمتغير البيئة
+    return get_setting("channel_username", CHANNEL_USERNAME)
 
 
 def track_user(user_id: int):
@@ -174,28 +192,37 @@ def quality_keyboard(token: str) -> InlineKeyboardMarkup:
 
 
 def join_keyboard() -> InlineKeyboardMarkup:
+    channel = current_channel()
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📢 انضم للقناة", url=f"https://t.me/{CHANNEL_USERNAME}")],
+            [InlineKeyboardButton(text="📢 انضم للقناة", url=f"https://t.me/{channel}")],
             [InlineKeyboardButton(text="✅ تحققت، تابع", callback_data="check_sub")],
         ]
     )
 
 
 async def is_subscribed(bot: Bot, user_id: int) -> bool:
-    if not CHANNEL_USERNAME:
+    channel = current_channel()
+    if not channel:
         return True  # لو ما حطينا قناة، ما نفرض اشتراك
     try:
-        member = await bot.get_chat_member(f"@{CHANNEL_USERNAME}", user_id)
+        member = await bot.get_chat_member(f"@{channel}", user_id)
         return member.status not in ("left", "kicked")
     except Exception:
         log.warning("subscription check failed")
         return True  # لو صار خطأ تقني، ما نمنع المستخدم
 
 
-def friendly_error(e: Exception) -> str:
+def friendly_error(e: Exception, url: str = "") -> str:
     msg = str(e).lower()
-    if "sign in" in msg or "login" in msg or "cookies" in msg:
+    is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
+    if "sign in" in msg or "login" in msg or "cookies" in msg or "bot" in msg:
+        if is_youtube:
+            return (
+                "😕 يوتيوب حالياً يمنع تحميل هذا الفيديو من السيرفر (قيود تحقق مشددة منهم).\n"
+                "هذا خارج عن إرادتنا وقد يتغيّر لاحقاً.\n\n"
+                "✅ تيك توك وانستقرام وسناب شات تشتغل بشكل طبيعي، جرّب رابط من هذي المنصات."
+            )
         return "المنصة طلبت تسجيل دخول، الرابط قد يكون خاص أو يحتاج إعداد إضافي."
     if "private" in msg or "unavailable" in msg or "not found" in msg or "removed" in msg:
         return "الفيديو خاص أو محذوف."
@@ -237,6 +264,30 @@ async def stats(m: Message):
     )
 
 
+@dp.message(Command("setchannel"))
+async def setchannel(m: Message):
+    if not ADMIN_ID or m.from_user.id != ADMIN_ID:
+        return
+    parts = m.text.split(maxsplit=1)
+    if len(parts) < 2:
+        await m.answer(
+            "استخدم الأمر كذا:\n"
+            "`/setchannel اليوزر`\n"
+            "مثال: `/setchannel mjeed_downloads`\n\n"
+            f"القناة الحالية: @{current_channel() or 'غير محددة'}\n\n"
+            "لإلغاء الاشتراك الإجباري كلياً: `/setchannel off`",
+            parse_mode="Markdown",
+        )
+        return
+    value = parts[1].strip().lstrip("@")
+    if value.lower() == "off":
+        set_setting("channel_username", "")
+        await m.answer("تم إلغاء الاشتراك الإجباري ✅")
+        return
+    set_setting("channel_username", value)
+    await m.answer(f"تم تحديث القناة إلى @{value} ✅")
+
+
 @dp.callback_query(F.data == "check_sub")
 async def on_check_sub(cb: CallbackQuery):
     if await is_subscribed(cb.bot, cb.from_user.id):
@@ -267,7 +318,7 @@ async def on_link(m: Message):
         info = await asyncio.to_thread(extract_info_sync, url)
     except Exception as e:
         log.exception("info failed")
-        await wait.edit_text(f"❌ {friendly_error(e)}")
+        await wait.edit_text(f"❌ {friendly_error(e, url)}")
         return
 
     if info["duration"] and info["duration"] > MAX_MINUTES * 60:
@@ -348,7 +399,7 @@ async def on_choice(cb: CallbackQuery):
         await status.delete()
     except Exception as e:
         log.exception("download failed")
-        await status.edit_text(f"❌ {friendly_error(e)}")
+        await status.edit_text(f"❌ {friendly_error(e, data['url'])}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
