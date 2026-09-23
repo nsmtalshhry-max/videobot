@@ -272,11 +272,10 @@ async def setchannel(m: Message):
     if len(parts) < 2:
         await m.answer(
             "استخدم الأمر كذا:\n"
-            "`/setchannel اليوزر`\n"
-            "مثال: `/setchannel mjeed_downloads`\n\n"
+            "/setchannel اليوزر\n"
+            "مثال: /setchannel mjeed_downloads\n\n"
             f"القناة الحالية: @{current_channel() or 'غير محددة'}\n\n"
-            "لإلغاء الاشتراك الإجباري كلياً: `/setchannel off`",
-            parse_mode="Markdown",
+            "لإلغاء الاشتراك الإجباري كلياً: /setchannel off"
         )
         return
     value = parts[1].strip().lstrip("@")
